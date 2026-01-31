@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+">
-  <img src="https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/platform-windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
 </p>
 
@@ -16,17 +16,9 @@
 
 ## What Is This?
 
-**WhatThePy** takes your Python source code and wraps it in layers of compression, encoding, and XOR to make it look intimidating. It:
+**WhatThePy** obfuscates Python code using AES-128-CTR encryption, triple XOR key masking, byte permutation, and compression. The result is compact, messy code that still runs fine.
 
-- **Compresses** your source with zlib
-- **XORs** it with a random key
-- **Encodes** everything in Base85
-- **Scatters** the payload into 30-40+ random chunks
-- **Adds** fake functions and decoy data
-
-The result? Code that **looks** scary but still runs perfectly.
-
-**Important:** This is a fun project for learning and deterring casual viewers. It's not real cryptography or serious protection - anyone with reverse engineering skills can unpack this. If you need actual security, use Cython, Nuitka, or even better, accept that all client side code is reversible!!.
+**Important:** This is for fun and learning. It deters casual viewers but won't stop determined attackers.
 
 ---
 
@@ -54,32 +46,26 @@ if __name__ == "__main__":
 <td>
 
 ```python
-import sys, os
-from typing import Optional, Any
-
-def validate_DWAs(config):
-    cache = {}
-    def inner(k, v=None):
-        if v is None:
-            return cache.get(k)
-        cache[k] = v
-        return v
-    return inner
-
-_1lI1l011O10I = 'JhB*_JaV{tPLHbz8(I?pI'
-_100I000IO1Ol = 'K(rv|g_mQ135Kynv>@p>k'
-# ... 40+ more chunks ...
-
-_l01I0Ol0OOl0 = [_1lI1l011O10I,_100I000IO1Ol,...]
-_O1Ol0O1IO1IO = b'\xf0\xf1\xc3\x15\x1dp...'
-_OIO1l101I1I0 = ''.join(_l01I0Ol0OOl0)
-
-exec(__import__('zlib').decompress(
-    (lambda d,k:bytes(a^b for a,b in zip(d,
-        __import__('itertools').cycle(k))))(
-            __import__('base64').b85decode(
-                _OIO1l101I1I0),_O1Ol0O1IO1IO))
-    .decode('utf-8'))
+try:from cryptography.hazmat.primitives.ciphers import Cipher as _C,algorithms as _A,modes as _M;from cryptography.hazmat.backends import default_backend as _B
+except:pass
+class load_AMWW:
+    _d={}
+    def __init__(s,m='default'):s.m=m;s._b=bytearray()
+    def write(s,c):s._b.extend(c);return len(c)
+    def flush(s):o=bytes(s._b);s._b.clear();return o
+_I111lO0OlOOl='R)8&iF4sw|%+}~N=)dV^nk>Gi...';_II1I00OO0O0O='Y!BDc9le|LelyiQgy`>t';_OO1O1Ol1IOOI=2454
+_l1OI1OIO00Il=[_l11lIl011l10,_1O0llO101III,...];_OI10lIIOlI11=''.join(_l1OI1OIO00Il)
+_10II1I101IO1=''.join([_1O01I0IlOO1O,_IIO0I00OlIOI,...])
+_IO1OOI111lII={}
+exec(__import__('zlib').decompress(__import__('base64').b85decode(_10II1I101IO1)).decode(),_IO1OOI111lII)
+_key=_IO1OOI111lII['get']()
+_IOlIOO0lOl1l=__import__('base64').b85decode(_OI10lIIOlI11)
+_1O101IOOIl10=__import__('cryptography.hazmat.primitives.ciphers',fromlist=['algorithms']).algorithms.AES
+_00lIO00llO11=__import__('cryptography.hazmat.primitives.ciphers',fromlist=['modes']).modes.CTR
+_lll10I0I0OIl=__import__('cryptography.hazmat.primitives.ciphers',fromlist=['Cipher']).Cipher(_1O101IOOIl10(_key[:16]),_00lIO00llO11(_key[16:]),__import__('cryptography.hazmat.backends',fromlist=['default_backend']).default_backend())
+_lllIIIO0l00l=_lll10I0I0OIl.decryptor()
+_O1O0O1O0I0I1=_lllIIIO0l00l.update(_IOlIOO0lOl1l)+_lllIIIO0l00l.finalize()
+exec(__import__('zlib').decompress(_O1O0O1O0I0I1).decode('utf-8'))
 ```
 
 </td>
@@ -96,10 +82,7 @@ cd WhatThePy
 pip install -r requirements.txt
 ```
 
-**Requirements:**
-- Python 3.8+
-- `rich` - Beautiful terminal output
-- `pyfiglet` - ASCII art banner
+**Requirements:** Python 3.8+, `rich`, `pyfiglet`, `cryptography`
 
 ---
 
@@ -107,126 +90,61 @@ pip install -r requirements.txt
 
 ```bash
 python -m whatthepy
+# Enter your file path when prompted
+# Output: yourfile_obfuscated.py
 ```
 
-You'll see:
-
-```
- _       ____          __ ________         ____
-| |     / / /_  ____ _/ //_  __/ /_  ___  / __ \__  __
-| | /| / / __ \/ __ `/ __// / / __ \/ _ \/ /_/ / / / /
-| |/ |/ / / / / /_/ / /_ / / / / / /  __/ ____/ /_/ /
-|__/|__/_/ /_/\__,_/\__//_/ /_/ /_/\___/_/    \__, /
-                                             /____/
-
-Compress -> Encrypt -> Scatter
-
-File path: mycode.py
-→ mycode.py (648 B)
-
----------------------------------------- Done
-
-✓ Saved to mycode_obfuscated.py
-  648 B → 2.7 KB | 14 chunks | 4 decoys
-
-pyinstaller --onefile mycode_obfuscated.py
+Works with PyInstaller:
+```bash
+pyinstaller --onefile yourfile_obfuscated.py
 ```
 
-Your obfuscated file is saved as `yourfile_obfuscated.py`.
+---
+
+## Protection Level
+
+| Threat | Protected? |
+|--------|-----------|
+| Script kiddies | Yes |
+| Casual copy-paste | Yes |
+| Quick glances | Yes |
+| Basic static analysis | Partially |
+| Motivated attackers | Slows them down |
+| Good reverse engineers | No |
+
+**Good for:** Learning, CTF challenges, deterring casual viewers
+**Not for:** Protecting secrets, valuable IP, or anything critical
 
 ---
 
 ## How It Works
 
 ```
-┌─────────────────┐
-│  Your Code.py   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Compress        │  ← zlib level 3
-│ (zlib)          │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Encrypt         │  ← XOR with random 16-byte key
-│ (XOR)           │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Encode          │  ← Base85 encoding
-│ (Base85)        │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Scatter         │  ← Split into 30-40+ random chunks
-│ Payload         │    Mixed with fake code & decoys
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ "Protected".py  │  ← Runs exactly like the original
-└─────────────────┘
+Source Code
+    |
+    v
+[1] Compress (zlib)
+    |
+    v
+[2] Encrypt (AES-128-CTR)
+    |
+    v
+[3] Encode (Base85)
+    |
+    v
+[4] Scatter into chunks with decoys
+    |
+    v
+[5] Key Protection:
+    - Triple XOR masking
+    - Byte permutation shuffle
+    - Split into 2-byte chunks
+    - Mixed with 10-18 decoy variables
+    - Compressed & encoded
+    |
+    v
+Obfuscated Output
 ```
-
----
-
-## What This Protects Against
-
-| Threat Level | Protected? |
-|--------------|-----------|
-| **Script kiddies** | ✅ Yes |
-| **Casual copy-paste** | ✅ Yes |
-| **Absolute beginners** | ✅ Yes |
-| **Quick glances** | ✅ Yes |
-| **Motivated attackers** | ❌ No |
-| **Static analysis tools** | ❌ No |
-| **Anyone who knows what they're doing** | ❌ No |
-
----
-
-## PyInstaller Ready
-
-The obfuscated code works with PyInstaller:
-
-```bash
-python -m whatthepy
-# Enter: myapp.py
-
-pyinstaller --onefile myapp_obfuscated.py
-
-./dist/myapp_obfuscated
-```
-
----
-
-## When To Use This
-
-**Good for:**
-- Learning how packing works
-- Deterring casual viewers
-- Fun projects
-- CTF challenges
-- "Please don't casually read this"
-
-**Not good for:**
-- Protecting valuable IP
-- License enforcement
-- Hiding secrets or API keys
-- Anything you actually care about
-
----
-
-## Limitations
-
-- File size increases due to encoding and fake code
-- Slightly slower runtime from decompression overhead
-- Python 3.8+ only
-- Not actual security (just deterrence)
 
 ---
 
@@ -240,7 +158,7 @@ Made this as a weekend project and please.. Don't use it for serious security ne
 
 ## License
 
-MIT License - Do whatever you want with it.
+MIT License - Do whatever you want with it, just don't blame me!
 
 ---
 

@@ -3,147 +3,171 @@ import zlib
 import base64
 import random
 import string
+from . import key_store
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 
-fake_funcs = [
-    '''def {name}(data, key=None):
-    if not data:
-        return None
-    result = []
-    for i, x in enumerate(data):
-        if key and i % 2 == 0:
-            result.append(x ^ key[i % len(key)])
-        else:
-            result.append(x)
-    return bytes(result) if result else b""''',
-
-    '''def {name}(config):
-    cache = {{}}
-    def inner(k, v=None):
-        if v is None:
-            return cache.get(k)
-        cache[k] = v
-        return v
-    for k, v in config.items():
-        inner(k, v)
-    return inner''',
-
-    '''class {name}:
-    _data = {{}}
-    def __init__(self, mode='default'):
-        self.mode = mode
-        self._buf = bytearray()
-    def write(self, chunk):
-        self._buf.extend(chunk)
-        return len(chunk)
-    def flush(self):
-        out = bytes(self._buf)
-        self._buf.clear()
-        return out''',
+fakes = [
+    '''def {n}(d,k=None):
+    if not d:return None
+    r=[]
+    for i,x in enumerate(d):
+        r.append(x^k[i%len(k)] if k and i%2==0 else x)
+    return bytes(r) if r else b""''',
+    '''class {n}:
+    _d={{}}
+    def __init__(s,m='default'):s.m=m;s._b=bytearray()
+    def write(s,c):s._b.extend(c);return len(c)
+    def flush(s):o=bytes(s._b);s._b.clear();return o''',
+    '''def {n}(s,e='utf-8'):return s.decode(e) if isinstance(s,bytes) else str(s)''',
+    '''class {n}:
+    def __init__(s,*a,**k):s._s={{}};s._l=False
+    def acquire(s):s._l=True;return s
+    def release(s):s._l=False
+    def get(s,k):return s._s.get(k)''',
+    '''def {n}(p,m='r'):
+    with open(p,m) as f:return f.read()''',
+    '''class {n}:
+    def __enter__(s):return s
+    def __exit__(s,*a):pass
+    def process(s,d):return d''',
+    '''def {n}(v,lo,hi):return max(lo,min(v,hi))''',
 ]
 
-fake_names = ['validate', 'decode', 'parse', 'transform', 'check', 'load', 'read', 'cache', 'buffer', 'stream']
+names = ['validate', 'decode', 'parse', 'transform', 'check', 'load',
+         'read', 'cache', 'buffer', 'process', 'encode', 'serialize']
 
-def scramble():
+def name():
     return '_' + ''.join(random.choices('Il1O0', k=12))
 
 def random_str(n):
     return ''.join(random.choices(string.ascii_letters + string.digits, k=n))
 
-def xor(data, key):
-    out = bytearray(len(data))
-    for i, b in enumerate(data):
-        out[i] = b ^ key[i % len(key)]
-    return bytes(out)
+def extract_imports(tree):
+    imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                imports.append(f"import {a.name}")
+        elif isinstance(node, ast.ImportFrom):
+            m = node.module or ''
+            for a in node.names:
+                imports.append(f"from {m} import {a.name}")
+    return imports
+
+def encrypt(data, key, nonce):
+    cipher = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend())
+    enc = cipher.encryptor()
+    return enc.update(data) + enc.finalize()
+
+def scatter(encoded):
+    chunks, i = [], 0
+    while i < len(encoded):
+        size = random.randint(15, 50)
+        chunks.append(encoded[i:i+size])
+        i += size
+    return chunks
+
+def make_decoys():
+    return [base64.b85encode(bytes(random.randint(0, 255) for _ in range(random.randint(80, 200)))).decode('ascii')
+            for _ in range(random.randint(2, 4))]
+
+def make_vars(chunks, decoys):
+    chunk_vars = [name() for _ in chunks]
+    decoy_vars = [name() for _ in decoys]
+
+    all_vars = [(v, c) for v, c in zip(chunk_vars, chunks)]
+    all_vars += [(v, c) for v, c in zip(decoy_vars, decoys)]
+    random.shuffle(all_vars)
+
+    lines = [f"{v}='{c}'" for v, c in all_vars]
+
+    for _ in range(random.randint(3, 6)):
+        v = name()
+        val = random.choice([f"'{random_str(random.randint(8,20))}'", f"{random.randint(100,9999)}"])
+        lines.append(f"{v}={val}")
+
+    random.shuffle(lines)
+    return chunk_vars, lines
+
+def batch_lines(lines):
+    batched = []
+    size = random.randint(4, 8)
+    for i in range(0, len(lines), size):
+        batched.append(';'.join(lines[i:i+size]))
+    return batched
+
+def make_decrypt_code(joined_var):
+    dv, av, cv, cipv, decv, outv = name(), name(), name(), name(), name(), name()
+    return [
+        f"{dv}=__import__('base64').b85decode({joined_var})",
+        f"{av}=__import__('cryptography.hazmat.primitives.ciphers',fromlist=['algorithms']).algorithms.AES",
+        f"{cv}=__import__('cryptography.hazmat.primitives.ciphers',fromlist=['modes']).modes.CTR",
+        f"{cipv}=__import__('cryptography.hazmat.primitives.ciphers',fromlist=['Cipher']).Cipher({av}(_key[:16]),{cv}(_key[16:]),__import__('cryptography.hazmat.backends',fromlist=['default_backend']).default_backend())",
+        f"{decv}={cipv}.decryptor()",
+        f"{outv}={decv}.update({dv})+{decv}.finalize()",
+        f"exec(__import__('zlib').decompress({outv}).decode('utf-8'))",
+    ]
+
+def add_fake(lines):
+    n = random.choice(names) + '_' + random_str(4)
+    lines.append(random.choice(fakes).format(n=n))
 
 def obfuscate(input_path, output_path, progress=None):
     def update(pct, msg):
         if progress:
             progress(pct, msg)
 
-    update(0, "Reading file...")
+    update(0, "Reading...")
     with open(input_path, 'r', encoding='utf-8') as f:
         source = f.read()
 
-    update(10, "Checking syntax...")
-    ast.parse(source)
+    update(10, "Parsing...")
+    tree = ast.parse(source)
+    imports = extract_imports(tree)
 
-    update(20, "Encoding source...")
-    data = source.encode('utf-8')
+    update(20, "Compressing...")
+    data = zlib.compress(source.encode('utf-8'), 3)
 
-    update(30, "Compressing...")
-    data = zlib.compress(data, 3)
-
-    update(40, "Encrypting...")
+    update(30, "Encrypting...")
     key = bytes(random.randint(0, 255) for _ in range(16))
-    data = xor(data, key)
+    nonce = bytes(random.randint(0, 255) for _ in range(16))
+    data = encrypt(data, key, nonce)
+
+    update(40, "Making key...")
+    kcode = key_store.make_key(key + nonce)
 
     update(50, "Encoding...")
     encoded = base64.b85encode(data).decode('ascii')
 
     update(60, "Scattering...")
+    chunks = scatter(encoded)
+    decoys = make_decoys()
+    chunk_vars, var_lines = make_vars(chunks, decoys)
 
-    chunks = []
-    i = 0
-    while i < len(encoded):
-        size = random.randint(15, 50)
-        chunks.append(encoded[i:i+size])
-        i += size
+    update(70, "Building...")
+    lines = [
+        "try:from cryptography.hazmat.primitives.ciphers import Cipher as _C,algorithms as _A,modes as _M;from cryptography.hazmat.backends import default_backend as _B",
+        "except:pass"
+    ]
 
-    chunk_vars = [scramble() for _ in chunks]
+    if imports:
+        size = random.randint(2, min(4, len(imports)))
+        for i in range(0, len(imports), size):
+            lines.append(';'.join(imports[i:i+size]))
 
-    decoy_count = random.randint(2, 4)
-    decoys = []
-    decoy_vars = []
-    for _ in range(decoy_count):
-        fake = bytes(random.randint(0, 255) for _ in range(random.randint(80, 200)))
-        decoys.append(base64.b85encode(fake).decode('ascii'))
-        decoy_vars.append(scramble())
+    add_fake(lines)
+    lines.extend(batch_lines(var_lines))
 
-    update(80, "Building output...")
+    ov, jv = name(), name()
+    lines.append(f"{ov}=[{','.join(chunk_vars)}];{jv}=''.join({ov})")
 
-    lines = []
-    lines.append("import sys, os")
-    lines.append("from typing import Optional, Any")
-    lines.append("")
+    for line in key_store.make_loader(kcode).strip().split('\n'):
+        if line:
+            lines.append(line)
 
-    name = random.choice(fake_names) + '_' + random_str(4)
-    lines.append(random.choice(fake_funcs).format(name=name))
-    lines.append("")
-
-    all_vars = []
-    for var, chunk in zip(chunk_vars, chunks):
-        all_vars.append((var, chunk, True))
-    for var, chunk in zip(decoy_vars, decoys):
-        all_vars.append((var, chunk, False))
-
-    random.shuffle(all_vars)
-
-    for var, chunk, _ in all_vars:
-        lines.append(f"{var} = '{chunk}'")
-
-    lines.append("")
-    name = random.choice(fake_names) + '_' + random_str(4)
-    lines.append(random.choice(fake_funcs).format(name=name))
-    lines.append("")
-
-    order_var = scramble()
-    lines.append(f"{order_var} = [{', '.join(chunk_vars)}]")
-
-    key_var = scramble()
-    lines.append(f"{key_var} = {key}")
-
-    joined_var = scramble()
-    lines.append(f"{joined_var} = ''.join({order_var})")
-
-    lines.append("")
-
-    lines.append(f"exec(__import__('zlib').decompress((lambda d,k:bytes(a^b for a,b in zip(d,__import__('itertools').cycle(k))))(__import__('base64').b85decode({joined_var}),{key_var})).decode('utf-8'))")
-
-    lines.append("")
-
-    name = random.choice(fake_names) + '_' + random_str(4)
-    lines.append(random.choice(fake_funcs).format(name=name))
-    lines.append("")
+    lines.extend(make_decrypt_code(jv))
+    add_fake(lines)
 
     update(90, "Writing...")
     output = '\n'.join(lines)
@@ -156,5 +180,5 @@ def obfuscate(input_path, output_path, progress=None):
         'original_size': len(source),
         'final_size': len(output),
         'chunks': len(chunks),
-        'decoys': decoy_count,
+        'decoys': len(decoys),
     }
